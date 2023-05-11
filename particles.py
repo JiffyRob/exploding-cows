@@ -1,28 +1,30 @@
-import pygame
+import math
 import random
+
+import pygame
 
 import animation
 
 
 class AnimParticle:
-    def __init__(self, pos, velocity, anim, is_alive=lambda self: True):
+    def __init__(
+        self, pos, velocity, anim, is_alive=lambda self, dt: not self.anim.done()
+    ):
         self.pos = pygame.Vector2(pos)
         self.vel = pygame.Vector2(velocity)
 
         self.anim = anim
+        self.image = self.anim.image()
         self.is_alive = is_alive
 
     def update(self, dt):
         self.pos += self.vel * dt
-        return self.is_alive(self)
-
-    @property
-    def image(self):
-        return self.anim.image()
+        self.image = self.anim.image()
+        return self.is_alive(self, dt)
 
 
 class ImageParticle:
-    def __init__(self, pos, velocity, image, is_alive=lambda self: True):
+    def __init__(self, pos, velocity, image, is_alive=lambda self, dt: True):
         self.pos = pygame.Vector2(pos)
         self.velocity = pygame.Vector2(velocity)
         self.image = image
@@ -30,13 +32,13 @@ class ImageParticle:
 
     def update(self, dt):
         self.pos += self.velocity * dt
-        return self.is_alive(self)
+        return self.is_alive(self, dt)
 
 
 class RectParticle:
     cached_images = {}
 
-    def __init__(self, pos, velocity, size, color, is_alive=lambda self: True):
+    def __init__(self, pos, velocity, size, color, is_alive=lambda self, dt: True):
         self.pos = pygame.Vector2(pos)
         self.velocity = pygame.Vector2(velocity)
 
@@ -48,7 +50,7 @@ class RectParticle:
 
     def update(self, dt):
         self.pos += self.velocity * dt
-        return self.is_alive(self)
+        return self.is_alive(self, dt)
 
     def update_image(self):
         cache_lookup = (self.size, self.color)
@@ -94,7 +96,7 @@ class CircleParticle:
             self.radius += self.expansion * dt
             self.update_image()
         self.pos = self.true_pos - (self.radius, self.radius)
-        return self.is_alive(self)
+        return self.is_alive(self, dt)
 
     def update_image(self):
         # use a rounded radius because sub-pixel doesn't happen and else caching will be almost useless
@@ -136,6 +138,19 @@ class ParticleManager:
         return len(self.particles)
 
 
+class DurationCallback:
+    def __init__(self, duration, on_finish=lambda *args, **kwargs: None):
+        self.duration = int(duration)
+        self.on_finish = on_finish
+
+    def __call__(self, particle, dt):
+        self.duration = max(0, self.duration - dt)
+        if not self.duration:
+            self.on_finish(particle, dt)
+            return 0
+        return 1
+
+
 def sprite_sheet(path, size=(16, 16)):
     # try to optimize the surface for drawing on the screen
     spritesheet = pygame.image.load(path)
@@ -163,63 +178,136 @@ def sprite_sheet(path, size=(16, 16)):
     return surf_list
 
 
+def randpos(length, outside=False):
+    angle = random.random() * 2 * math.pi
+    if outside:
+        mult = 1
+    if not outside:
+        mult = random.random()
+    return pygame.Vector2(
+        math.cos(angle) * length * mult, math.sin(angle) * length * mult
+    )
+
+
+def randinrect(rect):
+    return pygame.Vector2(
+        random.uniform(rect.left, rect.right), random.uniform(rect.top, rect.bottom)
+    )
+
+
 def explosion(
-    pos, manager, size=(16, 16), ring=True, soot=True, cloud=True, fireball=True
+    pos,
+    manager,
+    size=(16, 16),
+    ring=True,
+    soot=True,
+    cloud=True,
+    fireball=True,
+    cow=False,
 ):
+    global COWS
     particles = []
-    # flying rings
-    for i in range(size // 8):
-        particles.append(CircleParticle(pos, (0, 0), 1 + (10 * i), "white", 5, 32))
+    # flying ring
+    particles.append(
+        CircleParticle(
+            pos,
+            (0, 0),
+            int(size / 2) + 1,
+            "white",
+            size // 2,
+            256,
+            DurationCallback(2.5),
+        )
+    )
     # soot balls
-    offset_rect = pygame.Rect(-size / 2, -size / 2, size, size)
-    for i in range(size // 3):
-        offset = randpos(offset_rect)
+    for i in range(size**2 // 30):
+        offset = randpos(size)
         while not offset:
-            offset = randpos(offset_rect)
+            offset = randpos(size)
         particles.append(
-            CircleParticle(pos + offset, offset.normalize() * 32, 3, "black")
+            CircleParticle(
+                pos + offset,
+                offset.normalize() * (128 + (random.random() * 32 * size)),
+                3,
+                "black",
+                is_alive=lambda particle, dt: screen_rect.collidepoint(particle.pos),
+            )
         )
     # explosion cloud
-    for i in range((size // 8) + 1):
-        particles.append(
-            AnimParticle(
-                pos + randpos(offset_rect) + pygame.Vector2(-16, -16),
-                (0, 0),
-                animation.Animation(smoke_frames, 150),
+    # don't ask how this works, I'm not entirely sure either
+    spacing = int(size / 36) + 1
+    layers = int(size / spacing) + 1
+    shrink_speed = 10  # lower this to speed up the rate at which the explosion shrinks
+    max_time = (layers * shrink_speed) + 20
+    clouds = []
+    for i in range(0, layers):
+        radius = i * spacing
+        for _ in range(int((radius**2 * math.pi) / (32**2)) + 1):
+            offset = randpos(radius, True) + pygame.Vector2(-16, -16)
+            clouds.append(
+                AnimParticle(
+                    pos + offset,
+                    0,
+                    animation.OnceAnimation(
+                        smoke_frames, max(50, max_time - (shrink_speed * i))
+                    ),
+                )
             )
+    clouds.reverse()
+    particles.extend(clouds)
+    radius = 4
+    for i in range(size // 4):
+        offset = randpos(radius, True) + pygame.Vector2(-16, -16)
+        particles.append(
+            AnimParticle(pos + offset, 0, animation.OnceAnimation(smoke_frames, 150))
         )
-    # fireballs
-    for i in range((size // 16) + 4):
-        offset = randpos(offset_rect)
-        while not offset:
-            offset = randpos(offset_rect)
+    # duh duh duh duh-duh duh -- FIREBALL!
+    for _ in range(size**2 // 100):
+        offset = randpos(size)
         particles.append(
             AnimParticle(
-                pos + offset + pygame.Vector2(-8, -8),
-                offset.normalize() * 12,
+                pos + offset,
+                offset.normalize() * size * 6,
                 animation.Animation(fireball_frames),
+                DurationCallback(1),
             )
         )
-
     manager.add(particles)
+    if cow:
+        COWS -= 1
 
 
-def randpos(rect):
-    return pygame.Vector2(
-        random.randint(rect.left, rect.right), random.randint(rect.top, rect.bottom)
+def new_cow(manager, time=None):
+    global COWS
+    if time is None:
+        time = random.random() * 1000
+    manager.add(
+        [
+            ImageParticle(
+                randinrect(screen_rect),
+                0,
+                cow_frames[0],
+                DurationCallback(
+                    time,
+                    lambda particle, dt: explosion(
+                        particle.pos, manager, size, cow=True
+                    ),
+                ),
+            )
+        ]
     )
+    COWS += 1
 
 
 manager = ParticleManager()
 
 screen = pygame.display.set_mode((800, 600), pygame.SCALED)
 screen_rect = screen.get_rect().inflate(-50, -50)
-veloc_rect = pygame.Rect(-50, -50, 100, 100)
 size_rect = pygame.Rect(0, 0, 20, 30)
 running = True
 clock = pygame.time.Clock()
 colors = list(pygame.color.THECOLORS.values())
-images = (
+cow_frames = (
     pygame.image.load("cow1.png").convert(),
     pygame.image.load("cow2.png").convert(),
 )
@@ -227,16 +315,18 @@ fireball_frames = sprite_sheet("fireball.png")
 smoke_frames = sprite_sheet("smoke.png", (32, 32))
 
 
-for img in images:
+for img in cow_frames:
     img.set_colorkey("black")
 
-manager.add(
-    [
-        ImageParticle(randpos(screen_rect), randpos(veloc_rect), images[0])
-        for _ in range(0)
-    ]
-)
+
 size = 16
+wait_time = 0
+cooldown = 0
+COWS = 0
+
+for i in range(20):
+    new_cow(manager, i * 0.05)
+
 while running:
     screen.fill("gray")
     manager.draw(screen)
@@ -253,9 +343,19 @@ while running:
                 size += 1
             if event.button == 5:
                 size -= 1
+            size = max(size, 2)
             print(size)
     dt = clock.tick() / 1000
+    cooldown = max(0, cooldown - dt)
+    fps = clock.get_fps()
+    if fps > 60 and not cooldown:
+        new_cow(manager)
+        cooldown = wait_time
     manager.update(dt)
-    pygame.display.set_caption(f"{round(clock.get_fps())} {len(manager)}")
+    fps = round(fps)
+    particles = len(manager)
+    cows = COWS
+    explosives = len(manager) - COWS
+    pygame.display.set_caption(f"{fps=} {particles=} {size=} {cows=} {explosives=}")
 
 pygame.quit()
