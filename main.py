@@ -371,7 +371,8 @@ async def main():
         dt = clock.tick() / 1000
         fps = clock.get_fps()
         if fps > 60:
-            new_cow(manager)
+            for _ in range(5):
+                new_cow(manager)
         manager.update(dt)
 
     pygame.quit()
