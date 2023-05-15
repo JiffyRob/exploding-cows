@@ -339,7 +339,7 @@ for img in cow_frames:
     img.set_colorkey("black")
 
 
-size = 16
+size = 2
 COWS = 0
 
 
@@ -358,15 +358,14 @@ async def main():
             if event.type == pygame.QUIT:
                 running = False
             if event.type == pygame.KEYDOWN:
-                running = False
+                if event.key == pygame.K_1:
+                    size += 1
+               if event.key == pygaem.K_2:
+                    size -= 1
+                size = max(2, size)
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:
                     explosion(event.pos, manager, size)
-                if event.button == 4:
-                    size += 1
-                if event.button == 5:
-                    size -= 1
-                size = max(size, 2)
                 print(size)
         dt = clock.tick() / 1000
         fps = clock.get_fps()
