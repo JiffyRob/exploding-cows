@@ -360,7 +360,7 @@ async def main():
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_1:
                     size += 1
-               if event.key == pygaem.K_2:
+                if event.key == pygame.K_2:
                     size -= 1
                 size = max(2, size)
             if event.type == pygame.MOUSEBUTTONDOWN:
