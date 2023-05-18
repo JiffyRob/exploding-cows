@@ -348,6 +348,7 @@ async def main():
     global COWS
     running = True
     fps = 0
+    base_size = float(size)
     while running:
         screen.fill("gray")
         manager.draw(screen)
@@ -357,17 +358,21 @@ async def main():
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_1:
-                    size += 1
-                if event.key == pygame.K_2:
-                    size -= 1
-                size = max(2, size)
             if event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 1:
+                if event.button == 1 and not event.touch:
                     explosion(event.pos, manager, size)
                 print(size)
+            if event.type == pygame.FINGERMOTION:
+                explosion((event.x, event.y), manager, size)
+                explosion(pygame.Vector2(event.pos) + (event.dx, event.dy))
+        size = round(base_size)
         dt = clock.tick() / 1000
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_UP]:
+            base_size += 10 * dt
+        if keys[pygame.K_DOWN]:
+            base_size -= 10 * dt
+        size = round(base_size)
         fps = clock.get_fps()
         if fps > 60:
             for _ in range(5):
