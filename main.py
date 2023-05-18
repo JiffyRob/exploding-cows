@@ -364,7 +364,7 @@ async def main():
                 print(size)
             if event.type == pygame.FINGERMOTION:
                 explosion((event.x, event.y), manager, size)
-                explosion(pygame.Vector2(event.pos) + (event.dx, event.dy))
+                explosion(pygame.Vector2(event.x, event.y) + (event.dx, event.dy))
         size = round(base_size)
         dt = clock.tick() / 1000
         keys = pygame.key.get_pressed()
